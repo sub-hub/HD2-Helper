@@ -305,7 +305,7 @@ namespace HD2_Helper
 
         private void LoadUserSetting()
         {
-            List<FileInfo> configCandidates = new List<FileInfo>();
+            List<FileInfo> configCandidates = new();
 
             string localSavesPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -314,29 +314,31 @@ namespace HD2_Helper
 
             if (Directory.Exists(localSavesPath))
             {
-                var dir = new DirectoryInfo(localSavesPath);
-                configCandidates.AddRange(dir.GetFiles("*_input_settings.config"));
+                configCandidates.AddRange(
+                    new DirectoryInfo(localSavesPath).GetFiles("*_input_settings.config")
+                        .Where(f => f.Exists && f.Length > 0));
             }
 
             using (var steamKey = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam"))
             {
                 string? steamPath = steamKey?.GetValue("SteamPath") as string;
-                if (!string.IsNullOrEmpty(steamPath))
+
+                if (!string.IsNullOrWhiteSpace(steamPath))
                 {
-                    string loginUsersPath = Path.Combine(steamPath, "config", "loginusers.vdf");
-                    if (File.Exists(loginUsersPath))
+                    string userdataPath = Path.Combine(steamPath, "userdata");
+
+                    if (Directory.Exists(userdataPath))
                     {
-                        string vdf = File.ReadAllText(loginUsersPath);
-                        var steamMatch = Regex.Match(vdf, "\"(\\d{17})\"\\s*\\{[^}]*\"MostRecent\"\\s*\"1\"", RegexOptions.Singleline);
-
-                        if (steamMatch.Success && long.TryParse(steamMatch.Groups[1].Value, out long id64))
+                        foreach (string userDir in Directory.GetDirectories(userdataPath))
                         {
-                            string steamID3 = (id64 - 76561197960265728).ToString();
-                            string steamCloudPath = Path.Combine(steamPath, "userdata", steamID3, "553850", "remote", "input_settings.config");
+                            string configPath = Path.Combine(userDir, "553850", "remote", "input_settings.config");
 
-                            if (File.Exists(steamCloudPath))
+                            if (File.Exists(configPath))
                             {
-                                configCandidates.Add(new FileInfo(steamCloudPath));
+                                var fi = new FileInfo(configPath);
+
+                                if (fi.Length > 0)
+                                    configCandidates.Add(fi);
                             }
                         }
                     }
@@ -344,8 +346,7 @@ namespace HD2_Helper
             }
 
             var latestConfig = configCandidates
-                .Where(f => f.Exists && f.Length > 0)
-                .OrderByDescending(f => f.LastWriteTime)
+                .OrderByDescending(f => f.LastWriteTimeUtc)
                 .FirstOrDefault();
 
             if (latestConfig == null)
