@@ -19,7 +19,7 @@
             --preset-tab-font: 1.25rem;
             --line-normal: 1.25;
             --selected-image-padding: 0px;
-            --modal-slot-size: 120px;
+            --modal-slot-size: 90px;
             --modal-grid-image-size: 60px;
             --modal-weapon-image-width: 160px;
             --modal-weapon-image-height: 90px;
@@ -816,6 +816,19 @@
             gap: var(--space-md);
         }
 
+        .item-list-layout.modal-item-columns-2,
+        .item-list-layout.modal-item-columns-3 {
+            display: grid;
+        }
+
+        .item-list-layout.modal-item-columns-2 {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .item-list-layout.modal-item-columns-3 {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
         .mini-card {
             background: var(--hd-bg);
             border: 2px solid var(--hd-border);
@@ -928,11 +941,32 @@
                 object-fit: contain;
             }
 
-            .item-list-layout .mini-card img {
-                flex-shrink: 0;
-                object-fit: contain;
-                border-radius: var(--radius);
-            }
+        .item-list-layout .mini-card img {
+            flex-shrink: 0;
+            object-fit: contain;
+            border-radius: var(--radius);
+        }
+
+        .item-list-layout .item-image-wrapper {
+            flex: 0 0 var(--modal-square-image-size);
+            height: var(--modal-square-image-size);
+            position: relative;
+        }
+
+        .item-list-layout .item-image-wrapper > img.img-ratio-armor {
+            height: 100%;
+            width: 100%;
+        }
+
+        .item-list-layout .item-image-wrapper .passive-icon {
+            background: var(--hd-bg);
+            border-radius: var(--radius);
+            bottom: 4px;
+            left: 4px;
+            padding: 2px;
+            position: absolute;
+            z-index: 3;
+        }
 
         .item-list-layout .info-area {
             flex: 1;
@@ -944,24 +978,59 @@
             text-align: left;
         }
 
+        .item-list-layout .armor-info-area {
+            gap: 0;
+        }
+
         .item-list-layout .name {
             font-size: var(--font);
             font-weight: bold;
             line-height: var(--line-normal);
             color: var(--hd-text);
+            overflow: hidden;
+            text-overflow: clip;
+            white-space: nowrap;
+            position: relative;
+        }
+
+        .item-list-layout .name > span,
+        .passive-name > span {
+            display: inline-block;
+            pointer-events: none;
+            white-space: nowrap;
+        }
+
+        .item-list-layout .name,
+        .item-list-layout .desc,
+        .passive-name {
+            pointer-events: none;
+        }
+
+        .item-list-layout .mini-card[title] * {
+            pointer-events: none;
+        }
+
+        .item-list-layout .mini-card.is-modal-hovered .name > span,
+        .item-list-layout .mini-card.is-modal-hovered .passive-name > span {
+            animation: modal-text-scroll 1s ease-in-out alternate infinite;
+        }
+
+        .item-list-layout .mini-card.is-modal-hovered .name,
+        .item-list-layout .mini-card.is-modal-hovered .passive-name {
+            text-overflow: clip;
         }
 
         .item-list-layout .desc {
             font-size: var(--font);
             color: var(--hd-text-dark);
             line-height: var(--line-normal);
-            white-space: pre-line;
             margin-top: calc(0px - var(--space-md));
+            white-space: pre-line;
         }
 
         .passive-container {
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             gap: var(--space-md);
             background: var(--hd-dark-box);
             border: 1px solid var(--hd-border);
@@ -989,6 +1058,20 @@
             color: var(--hd-yellow);
             font-weight: bold;
             line-height: var(--line-normal);
+            overflow: hidden;
+            text-overflow: clip;
+            white-space: nowrap;
+            position: relative;
+        }
+
+        @keyframes modal-text-scroll {
+            0%, 10% {
+                transform: translateX(0);
+            }
+
+            90%, 100% {
+                transform: translateX(var(--text-scroll-distance, 0px));
+            }
         }
 
         .passive-desc {
@@ -1190,10 +1273,37 @@
         window.addEventListener('resize', () => {
             updateUiScale();
             updatePresetSelectedRule();
+            if (document.getElementById('item-modal')?.style.display === 'flex') {
+                requestAnimationFrame(() => requestAnimationFrame(updateModalTextOverflow));
+            }
         });
         window.addEventListener('load', () => {
             setTimeout(() => document.activeElement?.blur(), 0);
             renderPresetTabs();
+        });
+
+        document.addEventListener('mouseover', (event) => {
+            const card = event.target.closest('#modal-dynamic-content .item-list-layout .mini-card');
+            if (card && !card.contains(event.relatedTarget)) card.classList.add('is-modal-hovered');
+        });
+
+        document.addEventListener('mouseout', (event) => {
+            const card = event.target.closest('#modal-dynamic-content .item-list-layout .mini-card');
+            if (card && !card.contains(event.relatedTarget)) card.classList.remove('is-modal-hovered');
+        });
+
+        document.addEventListener('mouseover', (event) => {
+            const tooltipHost = event.target.closest('[data-native-tooltip]');
+            if (tooltipHost && !tooltipHost.contains(event.relatedTarget)) {
+                tooltipHost.title = tooltipHost.dataset.nativeTooltip;
+            }
+        });
+
+        document.addEventListener('mouseout', (event) => {
+            const tooltipHost = event.target.closest('[data-native-tooltip]');
+            if (tooltipHost && !tooltipHost.contains(event.relatedTarget)) {
+                tooltipHost.removeAttribute('title');
+            }
         });
         document.addEventListener('dragover', handleDocumentPresetDragOver);
         document.addEventListener('drop', handleDocumentPresetDrop);
@@ -1553,8 +1663,9 @@
 
         function renderStratagemSlot(slot, index, itemName = '', imgUrl = '') {
             slot.dataset.itemName = itemName;
-            if (itemName) slot.title = itemName;
-            else slot.removeAttribute('title');
+            if (itemName) slot.dataset.nativeTooltip = itemName;
+            else delete slot.dataset.nativeTooltip;
+            slot.removeAttribute('title');
 
             const slotLabel = String(index).padStart(2, '0');
             let label = slot.querySelector('.slot-label');
@@ -1633,10 +1744,7 @@
         }
 
         function getWeaponTraitSearchText(description = '') {
-            return String(description)
-                .split(/\r?\n/)
-                .slice(1)
-                .join(' / ');
+            return String(description);
         }
 
         const customSearchAliases = [
@@ -1711,7 +1819,9 @@
             if (!name) {
                 box.dataset.itemName = '';
                 box.removeAttribute('title');
-                box.closest('.loadout-box')?.removeAttribute('title');
+                const loadoutBox = box.closest('.loadout-box');
+                loadoutBox?.removeAttribute('title');
+                if (loadoutBox) delete loadoutBox.dataset.nativeTooltip;
                 box.querySelector(':scope > img')?.remove();
                 let plus = box.querySelector('.empty-plus');
                 if (!plus) {
@@ -1731,8 +1841,10 @@
             }
 
             box.dataset.itemName = name;
-            box.title = name;
-            box.closest('.loadout-box')?.setAttribute('title', name);
+            box.removeAttribute('title');
+            const loadoutBox = box.closest('.loadout-box');
+            loadoutBox?.removeAttribute('title');
+            if (loadoutBox) loadoutBox.dataset.nativeTooltip = name;
             const displayUrl = imgUrl || getCachedDisplayImageUrl(type, name);
             let image = box.querySelector(':scope > img');
             if (!image) {
@@ -1798,7 +1910,7 @@
             groupWrap.innerHTML = `<div class="category-title">제외</div>`;
 
             const listLayout = document.createElement('div');
-            listLayout.className = targetType === '스트라타젬' ? getStratagemGridLayoutClass() : 'item-list-layout';
+            listLayout.className = targetType === '스트라타젬' ? getStratagemGridLayoutClass() : getLoadoutModalLayoutClass(targetType);
 
             excludedInCurrentType.forEach(item => {
                 const name = item.Name;
@@ -1808,6 +1920,8 @@
                 const svgH = (type === '방어구' || type === '투척 무기') ? 480 : 360;
                 const description = item.Desc || "상세 정보가 없습니다.";
                 let passiveHtml = '';
+                let passiveIconHtml = '';
+                let passiveTooltip = '';
 
                 if (type === '방어구' && item.Passives) {
                     const pName = item.Passives.trim();
@@ -1815,15 +1929,9 @@
                     const pDesc = pData ? pData.Desc : "상세 효과 데이터가 없습니다.";
                     const pIconUrl = `https://hd2.local/images/passives/${pName}.png`;
 
-                    passiveHtml = `
-                                                                <div class="passive-container">
-                                                                    <img class="passive-icon" src="${pIconUrl}" onerror="setImageFallback(this, 48, 48)">
-                                                                    <div class="passive-info">
-                                                                        <div class="passive-name">${pName}</div>
-                                                                        <div class="passive-desc">${pDesc}</div>
-                                                                    </div>
-                                                                </div>
-                                                            `;
+                    passiveTooltip = pDesc;
+                    passiveIconHtml = `<img class="passive-icon" src="${pIconUrl}" onerror="setImageFallback(this, 48, 48)">`;
+                    passiveHtml = `<div class="passive-name"><span>${pName}</span></div>`;
                 }
 
                 const card = document.createElement('div');
@@ -1832,18 +1940,22 @@
                 card.setAttribute('data-raw-name', name);
                 card.setAttribute('data-rule-disabled', 'false');
                 card.setAttribute('tabindex', '-1');
+                if (passiveTooltip) card.dataset.nativeTooltip = passiveTooltip;
 
                 if (targetType === '스트라타젬') {
-                    if (stratagemCompactLayout) card.title = name;
-                    else card.removeAttribute('title');
+                    if (stratagemCompactLayout) card.dataset.nativeTooltip = name;
+                    else delete card.dataset.nativeTooltip;
+                    card.removeAttribute('title');
                     card.innerHTML = getStratagemCardHtml(name, getItemImageUrl(type, name));
                 } else {
                     const displayUrl = getCachedDisplayImageUrl(type, name);
                     card.innerHTML = `
-                                                                <img class="${ratioClass}" src="${displayUrl}" onerror="setImageFallback(this, ${svgW}, ${svgH})" />
-                                                                <div class="info-area">
-                                                                    <div class="name">${name}</div>
-                                                                    <div class="desc">${description}</div>
+                                                                ${type === '방어구'
+                                                                    ? `<div class="item-image-wrapper"><img class="${ratioClass}" src="${displayUrl}" onerror="setImageFallback(this, ${svgW}, ${svgH})" />${passiveIconHtml}</div>`
+                                                                    : `<img class="${ratioClass}" src="${displayUrl}" onerror="setImageFallback(this, ${svgW}, ${svgH})" />`}
+                                                                <div class="info-area ${type === '방어구' ? 'armor-info-area' : ''}">
+                                                                    <div class="name"><span>${name}</span></div>
+                                                                    ${type === '방어구' ? '' : `<div class="desc">${description}</div>`}
                                                                     ${passiveHtml}
                                                                 </div>
                                                             `;
@@ -1925,6 +2037,12 @@
 
         function getStratagemGridLayoutClass() {
             return `item-grid-layout${stratagemCompactLayout ? ' stratagem-grid-compact' : ''}`;
+        }
+
+        function getLoadoutModalLayoutClass(type) {
+            if (type === '방어구' || type === '투척 무기') return 'item-list-layout modal-item-columns-3';
+            if (type === '주 무기' || type === '보조 무기') return 'item-list-layout modal-item-columns-2';
+            return 'item-list-layout';
         }
 
         function getStratagemCardHtml(name, imageUrl) {
@@ -3031,8 +3149,9 @@
                         card.setAttribute('data-raw-name', item.Name);
                         card.setAttribute('data-rule-disabled', statusClass.includes('disabled') && !excludedItems.has(item.Name) ? 'true' : 'false');
                         card.setAttribute('tabindex', '-1');
-                        if (stratagemCompactLayout) card.title = item.Name;
-                        else card.removeAttribute('title');
+                        if (stratagemCompactLayout) card.dataset.nativeTooltip = item.Name;
+                        else delete card.dataset.nativeTooltip;
+                        card.removeAttribute('title');
                         card.innerHTML = getStratagemCardHtml(item.Name, imgUrl);
                         card.addEventListener('contextmenu', (e) => toggleExcludedItem(e, item.Name, '스트라타젬'));
 
@@ -3071,13 +3190,15 @@
                     groupWrap.innerHTML = `<div class="category-title">${category}</div>`;
 
                     const listContainerLayout = document.createElement('div');
-                    listContainerLayout.className = 'item-list-layout';
+                    listContainerLayout.className = getLoadoutModalLayoutClass(type);
 
                     groupData.forEach(item => {
                         if (excludedItems.has(item.Name)) return;
                         const imgUrl = getCachedDisplayImageUrl(type, item.Name);
                         const description = item.Desc || "상세 정보가 없습니다.";
                         let passiveHtml = '';
+                        let passiveIconHtml = '';
+                        let passiveTooltip = '';
 
                         let statusClass = (item.Name === currentEquippedName) ? 'selected-current' : '';
 
@@ -3087,15 +3208,9 @@
                             const pDesc = pData ? pData.Desc : "상세 효과 데이터가 없습니다.";
                             const pIconUrl = `https://hd2.local/images/passives/${pName}.png`;
 
-                            passiveHtml = `
-                                                                        <div class="passive-container">
-                                                                            <img class="passive-icon" src="${pIconUrl}" onerror="setImageFallback(this, 48, 48)">
-                                                                            <div class="passive-info">
-                                                                                <div class="passive-name">${pName}</div>
-                                                                                <div class="passive-desc">${pDesc}</div>
-                                                                            </div>
-                                                                        </div>
-                                                                    `;
+                            passiveTooltip = pDesc;
+                            passiveIconHtml = `<img class="passive-icon" src="${pIconUrl}" onerror="setImageFallback(this, 48, 48)">`;
+                            passiveHtml = `<div class="passive-name"><span>${pName}</span></div>`;
                         }
 
                         const card = document.createElement('div');
@@ -3104,11 +3219,14 @@
                         card.setAttribute('data-raw-name', item.Name);
                         card.setAttribute('data-rule-disabled', 'false');
                         card.setAttribute('tabindex', '-1');
+                        if (passiveTooltip) card.dataset.nativeTooltip = passiveTooltip;
                         card.innerHTML = `
-                                                                    <img class="${ratioClass}" src="${imgUrl}" onerror="setImageFallback(this, ${svgW}, ${svgH})" />
-                                                                    <div class="info-area">
-                                                                        <div class="name">${item.Name}</div>
-                                                                        <div class="desc">${description}</div>
+                                                                    ${type === '방어구'
+                                                                        ? `<div class="item-image-wrapper"><img class="${ratioClass}" src="${imgUrl}" onerror="setImageFallback(this, ${svgW}, ${svgH})" />${passiveIconHtml}</div>`
+                                                                        : `<img class="${ratioClass}" src="${imgUrl}" onerror="setImageFallback(this, ${svgW}, ${svgH})" />`}
+                                                                    <div class="info-area ${type === '방어구' ? 'armor-info-area' : ''}">
+                                                                        <div class="name"><span>${item.Name}</span></div>
+                                                                        ${type === '방어구' ? '' : `<div class="desc">${description}</div>`}
                                                                     ${passiveHtml}
                                                                     </div>
                                                                 `;
@@ -3128,9 +3246,21 @@
             updateExcludedCardStates();
             document.getElementById('item-modal').style.display = 'flex';
             modalItemList.scrollTop = previousListScrollTop;
+            requestAnimationFrame(() => requestAnimationFrame(updateModalTextOverflow));
             if (type === '스트라타젬') {
                 requestAnimationFrame(() => alignModalSlotSelectorToSelected(smoothSlotScroll));
             }
+        }
+
+        function updateModalTextOverflow() {
+            document.querySelectorAll('#modal-dynamic-content .item-list-layout .name, #modal-dynamic-content .item-list-layout .passive-name')
+                .forEach(element => {
+                    const label = element.querySelector(':scope > span');
+                    if (!label) return;
+
+                    const distance = Math.ceil(label.scrollWidth - element.clientWidth);
+                    element.style.setProperty('--text-scroll-distance', `-${Math.max(0, distance)}px`);
+                });
         }
 
         function filterModalItems() {
