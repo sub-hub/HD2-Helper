@@ -94,6 +94,14 @@ namespace HD2_Helper
         private static bool _isPad;
         private static bool _isWaitingForKey;
         private static string? _waitingKeyTarget;
+
+        // Shortcut combo encoding: modifier flags live in bits 16-19, the virtual key in bits 0-15.
+        private const uint ModCtrl = 0x00010000;
+        private const uint ModAlt = 0x00020000;
+        private const uint ModShift = 0x00040000;
+        private const uint ModWin = 0x00080000;
+        private const uint KeyMask = 0x0000FFFF;
+        private static uint _overlayActiveKey;
         private int _isSending = 0;
 
         public class InputEventArgs : EventArgs
@@ -130,6 +138,9 @@ namespace HD2_Helper
 
         [DllImport("user32.dll")]
         private static extern void keybd_event(uint bVk, uint bScan, uint dwFlags, UIntPtr dwExtraInfo);
+
+        [DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int vKey);
 
         [DllImport("user32.dll")]
         private static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, IntPtr dwExtraInfo);
@@ -820,10 +831,10 @@ namespace HD2_Helper
 
         private void AssignCapturedSettingsKey(uint vkCode)
         {
-            if (vkCode == (uint)Keys.LButton)
+            if ((vkCode & KeyMask) == (uint)Keys.LButton)
                 return;
 
-            if (vkCode == (uint)Keys.RButton)
+            if ((vkCode & KeyMask) == (uint)Keys.RButton)
                 vkCode = 0;
 
             string? target = _waitingKeyTarget;
@@ -1035,38 +1046,94 @@ namespace HD2_Helper
 
             if (_isWaitingForKey && Form.ActiveForm is MainForm && e.IsDown)
             {
-                AssignCapturedSettingsKey(vkCode);
+                // Modifier-only presses do not complete capture; they combine with the next real key.
+                if (IsModifierKey(vkCode)) return;
+                AssignCapturedSettingsKey(ComposeCombo(vkCode));
                 return;
             }
 
-            if (vkCode == _overlayKey)
+            uint currentMods = GetCurrentModifiers();
+
+            if (e.IsDown)
             {
-                if (e.IsDown) OverlayShow();
-                else OverlayHide();
+                if (MatchesBinding(_overlayKey, vkCode, currentMods, exactOnly: false))
+                {
+                    _overlayActiveKey = vkCode;
+                    OverlayShow();
+                }
+            }
+            else if (_overlayActiveKey == vkCode)
+            {
+                _overlayActiveKey = 0;
+                OverlayHide();
             }
 
             if (!e.IsDown)
                 return;
 
-            if (vkCode == _autoSelectKey)
+            // Combo bindings (with modifiers) take priority over legacy plain keys on the same key.
+            if (TryFireSettingsAction(vkCode, currentMods, exactOnly: true)) return;
+            TryFireSettingsAction(vkCode, currentMods, exactOnly: false);
+        }
+
+        private static bool IsModifierKey(uint vk)
+        {
+            return vk is (uint)Keys.ShiftKey or (uint)Keys.ControlKey or (uint)Keys.Menu
+                or (uint)Keys.LShiftKey or (uint)Keys.RShiftKey
+                or (uint)Keys.LControlKey or (uint)Keys.RControlKey
+                or (uint)Keys.LMenu or (uint)Keys.RMenu
+                or (uint)Keys.LWin or (uint)Keys.RWin;
+        }
+
+        private static bool IsKeyDown(int vk)
+        {
+            return (GetAsyncKeyState(vk) & 0x8000) != 0;
+        }
+
+        private static uint GetCurrentModifiers()
+        {
+            uint mods = 0;
+            if (IsKeyDown(0x11) || IsKeyDown(0xA2) || IsKeyDown(0xA3)) mods |= ModCtrl;  // Ctrl / LCtrl / RCtrl
+            if (IsKeyDown(0x12) || IsKeyDown(0xA4) || IsKeyDown(0xA5)) mods |= ModAlt;   // Alt / LAlt / RAlt
+            if (IsKeyDown(0x10) || IsKeyDown(0xA0) || IsKeyDown(0xA1)) mods |= ModShift; // Shift / LShift / RShift
+            if (IsKeyDown(0x5B) || IsKeyDown(0x5C)) mods |= ModWin;                      // LWin / RWin
+            return mods;
+        }
+
+        private static uint ComposeCombo(uint vkCode)
+        {
+            return vkCode | GetCurrentModifiers();
+        }
+
+        private static bool MatchesBinding(uint binding, uint vkCode, uint currentMods, bool exactOnly)
+        {
+            if ((binding & KeyMask) != vkCode) return false;
+            uint mods = binding & ~KeyMask;
+            if (mods == 0) return !exactOnly; // legacy plain key: fires regardless of held modifiers, only in the fallback pass
+            return mods == currentMods;       // combo: requires the exact modifier state
+        }
+
+        private bool TryFireSettingsAction(uint vkCode, uint currentMods, bool exactOnly)
+        {
+            if (MatchesBinding(_autoSelectKey, vkCode, currentMods, exactOnly))
             {
                 TriggerAutoSelection();
+                return true;
             }
-            else if (vkCode == _reinforceKey)
+            if (MatchesBinding(_reinforceKey, vkCode, currentMods, exactOnly))
             {
                 TriggerStratagem(-1);
+                return true;
             }
-            else
+            foreach (var pair in _slotKey)
             {
-                foreach (var pair in _slotKey)
+                if (MatchesBinding(pair.Value, vkCode, currentMods, exactOnly))
                 {
-                    if (pair.Value == vkCode)
-                    {
-                        TriggerStratagem(pair.Key);
-                        break;
-                    }
+                    TriggerStratagem(pair.Key);
+                    return true;
                 }
             }
+            return false;
         }
 
         private async Task<string?> MatchItemFromScreen(string targetType)
@@ -1714,6 +1781,21 @@ namespace HD2_Helper
         private string GetKeyName(uint value)
         {
             if (value == 0) return "없음";
+
+            uint mods = value & ~KeyMask;
+            if (mods == 0) return GetSingleKeyName(value);
+
+            var parts = new List<string>();
+            if ((mods & ModCtrl) != 0) parts.Add("Ctrl");
+            if ((mods & ModAlt) != 0) parts.Add("Alt");
+            if ((mods & ModShift) != 0) parts.Add("Shift");
+            if ((mods & ModWin) != 0) parts.Add("Win");
+            parts.Add(GetSingleKeyName(value & KeyMask));
+            return string.Join("+", parts);
+        }
+
+        private string GetSingleKeyName(uint value)
+        {
             if (value >= 0x1001) return ((PadButton)value).ToString();
 
             var specialKeys = new Dictionary<Keys, string>
