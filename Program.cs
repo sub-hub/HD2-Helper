@@ -1063,6 +1063,14 @@ namespace HD2_Helper
                             AssignCapturedSettingsKey(ComposeCombo(vkCode));
                             return;
                         }
+                        // Non-Space modifier pressed while Space is already held -> Space is still the base key,
+                        // mirroring the case above so capture is order-independent (Space then Ctrl == Ctrl+Space).
+                        if (vkCode != (uint)Keys.Space && (_captureModsHeld & ModSpace) != 0)
+                        {
+                            ResetCaptureModifiers();
+                            AssignCapturedSettingsKey(ComposeCombo((uint)Keys.Space));
+                            return;
+                        }
                         // Modifier held: wait for a real key (combo) or its own release (standalone).
                         uint flag = ModFlagOf(vkCode);
                         if ((_captureModsHeld & ~flag) != 0) _captureMultipleMods = true;
