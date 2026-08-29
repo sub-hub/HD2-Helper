@@ -94,7 +94,8 @@ namespace HD2_Helper
         private static bool _isPad;
         private static bool _isWaitingForKey;
         private static string? _waitingKeyTarget;
-        private static uint _captureModifierVk;
+        private static uint _captureModsHeld;         // modifier flags currently held during key capture
+        private static bool _captureMultipleMods;     // true when >1 modifier was held at once during capture
 
         // Shortcut combo encoding: modifier flags live in bits 16-20, the virtual key in bits 0-15.
         private const uint ModCtrl = 0x00010000;
@@ -605,6 +606,7 @@ namespace HD2_Helper
                         {
                             _waitingKeyTarget = target;
                             _isWaitingForKey = true;
+                            ResetCaptureModifiers();
                             SendSettingsToWeb();
                         }
                     }
@@ -622,6 +624,7 @@ namespace HD2_Helper
                 {
                     _isWaitingForKey = false;
                     _waitingKeyTarget = null;
+                    ResetCaptureModifiers();
                     SendSettingsToWeb();
                 }
                 else if (type == "SAVE_DISABLED_ITEMS")
@@ -842,6 +845,7 @@ namespace HD2_Helper
             string? target = _waitingKeyTarget;
             _isWaitingForKey = false;
             _waitingKeyTarget = null;
+            ResetCaptureModifiers();
 
             if (!IsValidSettingsKeyTarget(target)) return;
 
@@ -1052,29 +1056,36 @@ namespace HD2_Helper
                 {
                     if (e.IsDown)
                     {
+                        // Space pressed while another modifier is held -> Space is the base key (e.g. Ctrl+Space).
+                        if (vkCode == (uint)Keys.Space && (_captureModsHeld & ~ModSpace) != 0)
+                        {
+                            ResetCaptureModifiers();
+                            AssignCapturedSettingsKey(ComposeCombo(vkCode));
+                            return;
+                        }
                         // Modifier held: wait for a real key (combo) or its own release (standalone).
-                        _captureModifierVk = vkCode;
+                        uint flag = ModFlagOf(vkCode);
+                        if ((_captureModsHeld & ~flag) != 0) _captureMultipleMods = true;
+                        _captureModsHeld |= flag;
                         return;
                     }
-                    // Modifier released without a real key pressed in between -> commit standalone.
-                    if (_captureModifierVk == vkCode)
-                    {
-                        _captureModifierVk = 0;
+                    // Modifier released. Commit standalone only if it was the sole modifier and none is still held.
+                    _captureModsHeld &= ~ModFlagOf(vkCode);
+                    if (_captureModsHeld == 0 && !_captureMultipleMods)
                         AssignCapturedSettingsKey(vkCode);
-                    }
                     return;
                 }
 
                 if (e.IsDown)
                 {
                     // Real key pressed while a modifier is held -> compose the combo.
-                    _captureModifierVk = 0;
+                    ResetCaptureModifiers();
                     AssignCapturedSettingsKey(ComposeCombo(vkCode));
                 }
                 return;
             }
 
-            uint currentMods = GetCurrentModifiers();
+            uint currentMods = GetModifiersFor(vkCode);
 
             if (e.IsDown)
             {
@@ -1124,9 +1135,37 @@ namespace HD2_Helper
             return mods;
         }
 
+        private static uint ModFlagOf(uint vk)
+        {
+            return vk switch
+            {
+                (uint)Keys.ShiftKey or (uint)Keys.LShiftKey or (uint)Keys.RShiftKey => ModShift,
+                (uint)Keys.ControlKey or (uint)Keys.LControlKey or (uint)Keys.RControlKey => ModCtrl,
+                (uint)Keys.Menu or (uint)Keys.LMenu or (uint)Keys.RMenu => ModAlt,
+                (uint)Keys.LWin or (uint)Keys.RWin => ModWin,
+                (uint)Keys.Space => ModSpace,
+                _ => 0
+            };
+        }
+
+        private static void ResetCaptureModifiers()
+        {
+            _captureModsHeld = 0;
+            _captureMultipleMods = false;
+        }
+
+        // Modifiers in effect for a given base key. When Space is the base key itself (e.g. Ctrl+Space)
+        // it is not a modifier, so ModSpace is excluded in that case.
+        private static uint GetModifiersFor(uint vkCode)
+        {
+            uint mods = GetCurrentModifiers();
+            if ((vkCode & KeyMask) == (uint)Keys.Space) mods &= ~ModSpace;
+            return mods;
+        }
+
         private static uint ComposeCombo(uint vkCode)
         {
-            return vkCode | GetCurrentModifiers();
+            return vkCode | GetModifiersFor(vkCode);
         }
 
         private static bool MatchesBinding(uint binding, uint vkCode, uint currentMods, bool exactOnly)
@@ -1134,7 +1173,12 @@ namespace HD2_Helper
             if ((binding & KeyMask) != vkCode) return false;
             uint mods = binding & ~KeyMask;
             if (mods == 0) return !exactOnly; // legacy plain key: fires regardless of held modifiers, only in the fallback pass
-            return mods == currentMods;       // combo: requires the exact modifier state
+            // Non-Space modifiers must match exactly. Space is a "soft" modifier: it only blocks when the
+            // binding explicitly requires it, so holding Space (e.g. jump) does not break other combos.
+            uint required = mods & ~ModSpace;
+            if (required != (currentMods & ~ModSpace)) return false;
+            if ((mods & ModSpace) != 0 && (currentMods & ModSpace) == 0) return false;
+            return true;
         }
 
         private bool TryFireSettingsAction(uint vkCode, uint currentMods, bool exactOnly)
