@@ -94,6 +94,7 @@ namespace HD2_Helper
         private static bool _isPad;
         private static bool _isWaitingForKey;
         private static string? _waitingKeyTarget;
+        private static uint _captureModifierVk;
 
         // Shortcut combo encoding: modifier flags live in bits 16-20, the virtual key in bits 0-15.
         private const uint ModCtrl = 0x00010000;
@@ -1045,11 +1046,31 @@ namespace HD2_Helper
         {
             uint vkCode = e.VirtualKey;
 
-            if (_isWaitingForKey && Form.ActiveForm is MainForm && e.IsDown)
+            if (_isWaitingForKey && Form.ActiveForm is MainForm)
             {
-                // Modifier-only presses do not complete capture; they combine with the next real key.
-                if (IsModifierKey(vkCode)) return;
-                AssignCapturedSettingsKey(ComposeCombo(vkCode));
+                if (IsModifierKey(vkCode))
+                {
+                    if (e.IsDown)
+                    {
+                        // Modifier held: wait for a real key (combo) or its own release (standalone).
+                        _captureModifierVk = vkCode;
+                        return;
+                    }
+                    // Modifier released without a real key pressed in between -> commit standalone.
+                    if (_captureModifierVk == vkCode)
+                    {
+                        _captureModifierVk = 0;
+                        AssignCapturedSettingsKey(vkCode);
+                    }
+                    return;
+                }
+
+                if (e.IsDown)
+                {
+                    // Real key pressed while a modifier is held -> compose the combo.
+                    _captureModifierVk = 0;
+                    AssignCapturedSettingsKey(ComposeCombo(vkCode));
+                }
                 return;
             }
 
