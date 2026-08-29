@@ -95,11 +95,12 @@ namespace HD2_Helper
         private static bool _isWaitingForKey;
         private static string? _waitingKeyTarget;
 
-        // Shortcut combo encoding: modifier flags live in bits 16-19, the virtual key in bits 0-15.
+        // Shortcut combo encoding: modifier flags live in bits 16-20, the virtual key in bits 0-15.
         private const uint ModCtrl = 0x00010000;
         private const uint ModAlt = 0x00020000;
         private const uint ModShift = 0x00040000;
         private const uint ModWin = 0x00080000;
+        private const uint ModSpace = 0x00100000;
         private const uint KeyMask = 0x0000FFFF;
         private static uint _overlayActiveKey;
         private int _isSending = 0;
@@ -1082,7 +1083,8 @@ namespace HD2_Helper
                 or (uint)Keys.LShiftKey or (uint)Keys.RShiftKey
                 or (uint)Keys.LControlKey or (uint)Keys.RControlKey
                 or (uint)Keys.LMenu or (uint)Keys.RMenu
-                or (uint)Keys.LWin or (uint)Keys.RWin;
+                or (uint)Keys.LWin or (uint)Keys.RWin
+                or (uint)Keys.Space;
         }
 
         private static bool IsKeyDown(int vk)
@@ -1097,6 +1099,7 @@ namespace HD2_Helper
             if (IsKeyDown(0x12) || IsKeyDown(0xA4) || IsKeyDown(0xA5)) mods |= ModAlt;   // Alt / LAlt / RAlt
             if (IsKeyDown(0x10) || IsKeyDown(0xA0) || IsKeyDown(0xA1)) mods |= ModShift; // Shift / LShift / RShift
             if (IsKeyDown(0x5B) || IsKeyDown(0x5C)) mods |= ModWin;                      // LWin / RWin
+            if (IsKeyDown(0x20)) mods |= ModSpace;                                       // Space
             return mods;
         }
 
@@ -1790,6 +1793,7 @@ namespace HD2_Helper
             if ((mods & ModAlt) != 0) parts.Add("Alt");
             if ((mods & ModShift) != 0) parts.Add("Shift");
             if ((mods & ModWin) != 0) parts.Add("Win");
+            if ((mods & ModSpace) != 0) parts.Add("Space");
             parts.Add(GetSingleKeyName(value & KeyMask));
             return string.Join("+", parts);
         }
